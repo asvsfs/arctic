@@ -423,7 +423,7 @@ class TickStore(object):
         column_dtypes = {}
         ticks_read = 0
         data_coll = self._collection.with_options(read_preference=self._read_preference(allow_secondary))
-        for b in data_coll.find(query, projection=projection).sort({'start': -1}).limit(1):
+        for b in data_coll.find(query, projection=projection).sort([('start', -1)]).limit(1):
             data = self._read_bucket(b, column_set, column_dtypes,
                                      multiple_symbols or (columns is not None and 'SYMBOL' in columns),
                                      include_images, columns)
