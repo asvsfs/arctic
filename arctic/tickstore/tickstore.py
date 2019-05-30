@@ -368,7 +368,113 @@ class TickStore(object):
             # FIXME: support DateRange.interval...
             rtn = rtn.loc[date_range.start:date_range.end]
         return rtn
+    def readLast(self, symbol, date_range=None, columns=None, include_images=False, allow_secondary=None,
+             _target_tick_count=0):
+        """
+        Read data for the named symbol.  Returns a VersionedItem object with
+        a data and metdata element (as passed into write).
 
+        Parameters
+        ----------
+        symbol : `str`
+            symbol name for the item
+        date_range : `date.DateRange`
+            Returns ticks in the specified DateRange
+        columns : `list` of `str`
+            Columns (fields) to return from the tickstore
+        include_images : `bool`
+            Should images (/snapshots) be included in the read
+        allow_secondary : `bool` or `None`
+            Override the default behavior for allowing reads from secondary members of a cluster:
+            `None` : use the settings from the top-level `Arctic` object used to query this version store.
+            `True` : allow reads from secondary members
+            `False` : only allow reads from primary members
+
+        Returns
+        -------
+        pandas.DataFrame of data
+        """
+        perf_start = dt.now()
+        rtn = {}
+        column_set = set()
+
+        multiple_symbols = not isinstance(symbol, string_types)
+
+        date_range = to_pandas_closed_closed(date_range)
+        query = self._symbol_query(symbol)
+        query.update(self._mongo_date_range_query(symbol, date_range))
+
+        if columns:
+            projection = dict([(SYMBOL, 1),
+                               (INDEX, 1),
+                               (START, 1),
+                               (VERSION, 1),
+                               (IMAGE_DOC, 1)] +
+                              [(COLUMNS + '.%s' % c, 1) for c in columns])
+            column_set.update([c for c in columns if c != 'SYMBOL'])
+        else:
+            projection = dict([(SYMBOL, 1),
+                               (INDEX, 1),
+                               (START, 1),
+                               (VERSION, 1),
+                               (COLUMNS, 1),
+                               (IMAGE_DOC, 1)])
+
+        column_dtypes = {}
+        ticks_read = 0
+        data_coll = self._collection.with_options(read_preference=self._read_preference(allow_secondary))
+        for b in data_coll.find(query, projection=projection).sort({'start': -1}).limit(1):
+            data = self._read_bucket(b, column_set, column_dtypes,
+                                     multiple_symbols or (columns is not None and 'SYMBOL' in columns),
+                                     include_images, columns)
+            for k, v in iteritems(data):
+                try:
+                    rtn[k].append(v)
+                except KeyError:
+                    rtn[k] = [v]
+            # For testing
+            ticks_read += len(data[INDEX])
+            if _target_tick_count and ticks_read > _target_tick_count:
+                break
+
+        if not rtn:
+            raise NoDataFoundException("No Data found for {} in range: {}".format(symbol, date_range))
+        rtn = self._pad_and_fix_dtypes(rtn, column_dtypes)
+
+        index = pd.to_datetime(np.concatenate(rtn[INDEX]), utc=True, unit='ms')
+        if columns is None:
+            columns = [x for x in rtn.keys() if x not in (INDEX, 'SYMBOL')]
+        if multiple_symbols and 'SYMBOL' not in columns:
+            columns = ['SYMBOL', ] + columns
+
+        if len(index) > 0:
+            arrays = [np.concatenate(rtn[k]) for k in columns]
+        else:
+            arrays = [[] for _ in columns]
+
+        if multiple_symbols:
+            sort = np.argsort(index, kind='mergesort')
+            index = index[sort]
+            arrays = [a[sort] for a in arrays]
+
+        t = (dt.now() - perf_start).total_seconds()
+        logger.info("Got data in %s secs, creating DataFrame..." % t)
+        mgr = _arrays_to_mgr(arrays, columns, index, columns, dtype=None)
+        rtn = pd.DataFrame(mgr)
+        # Present data in the user's default TimeZone
+        rtn.index = rtn.index.tz_convert(mktz())
+
+        t = (dt.now() - perf_start).total_seconds()
+        ticks = len(rtn)
+        rate = int(ticks / t) if t != 0 else float("nan")
+        logger.info("%d rows in %s secs: %s ticks/sec" % (ticks, t, rate))
+        if not rtn.index.is_monotonic:
+            logger.error("TimeSeries data is out of order, sorting!")
+            rtn = rtn.sort_index(kind='mergesort')
+        if date_range:
+            # FIXME: support DateRange.interval...
+            rtn = rtn.loc[date_range.start:date_range.end]
+        return rtn
     def read_metadata(self, symbol):
         """
         Read metadata for the specified symbol
