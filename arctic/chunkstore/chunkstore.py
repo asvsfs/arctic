@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 CHUNK_STORE_TYPE = 'ChunkStoreV1'
 SYMBOL = 'sy'
-END_ID = 'ei'
-START_ID= 'si'
 SHA = 'sh'
 CHUNK_SIZE = 'cs'
 CHUNK_COUNT = 'cc'
@@ -64,26 +62,20 @@ class ChunkStore(object):
                                       unique=True,
                                       background=True)
         self._collection.create_index([(SYMBOL, pymongo.ASCENDING),
-                                       (START_ID, pymongo.ASCENDING),
-                                       (END_ID, pymongo.ASCENDING),
                                        (START, pymongo.ASCENDING),
                                        (END, pymongo.ASCENDING),
                                        (SEGMENT, pymongo.ASCENDING)],
                                       unique=True, background=True)
         self._collection.create_index([(SYMBOL, pymongo.ASCENDING),
-                                      (START_ID, pymongo.ASCENDING),
-                                      (START, pymongo.ASCENDING),
-                                      (SEGMENT, pymongo.ASCENDING)],
+                                       (START, pymongo.ASCENDING),
+                                       (SEGMENT, pymongo.ASCENDING)],
                                       unique=True, background=True)
         self._collection.create_index([(SEGMENT, pymongo.ASCENDING)],
                                       unique=False, background=True)
         self._mdata.create_index([(SYMBOL, pymongo.ASCENDING),
-                                  (START_ID, pymongo.ASCENDING),
-                                  (END_ID, pymongo.ASCENDING),
                                   (START, pymongo.ASCENDING),
                                   (END, pymongo.ASCENDING)],
                                  unique=True, background=True)
-                                 
 
     def __init__(self, arctic_lib):
         self._arctic_lib = arctic_lib
@@ -360,39 +352,31 @@ class ChunkStore(object):
         meta_ops = []
         chunk_count = 0
 
-        for start, end, chunk_size, start_id, end_id, record in chunker.to_chunks(item, **kwargs):
+        for start, end, chunk_size, record in chunker.to_chunks(item, **kwargs):
             chunk_count += 1
             data = self.serializer.serialize(record)
             doc[CHUNK_SIZE] = chunk_size
             doc[METADATA] = {'columns': data[METADATA][COLUMNS] if COLUMNS in data[METADATA] else ''}
             meta = data[METADATA]
+
             for i in xrange(int(len(data[DATA]) / MAX_CHUNK_SIZE + 1)):
                 chunk = {DATA: Binary(data[DATA][i * MAX_CHUNK_SIZE: (i + 1) * MAX_CHUNK_SIZE])}
-                start_id = (int(start_id))
-                end_id = (int(end_id))
                 chunk[SEGMENT] = i
                 chunk[START] = meta[START] = start
                 chunk[END] = meta[END] = end
                 chunk[SYMBOL] = meta[SYMBOL] = symbol
-                chunk[START_ID] = meta[START_ID] = start_id
-                chunk[END_ID] = meta[END_ID] = end_id
                 dates = [chunker.chunk_to_str(start), chunker.chunk_to_str(end), str(chunk[SEGMENT]).encode('ascii')]
                 chunk[SHA] = self._checksum(dates, chunk[DATA])
-    
+
                 meta_ops.append(pymongo.ReplaceOne({SYMBOL: symbol,
                                                     START: start,
-                                                    END: end,
-                                                    START_ID: start_id,
-                                                    END_ID: end_id,
-                                                    },
+                                                    END: end},
                                                    meta, upsert=True))
 
                 if chunk[SHA] not in previous_shas:
                     ops.append(pymongo.UpdateOne({SYMBOL: symbol,
                                                   START: start,
                                                   END: end,
-                                                  START_ID: start_id,
-                                                  END_ID: end_id,
                                                   SEGMENT: chunk[SEGMENT]},
                                                  {'$set': chunk}, upsert=True))
                 else:
@@ -400,15 +384,17 @@ class ChunkStore(object):
                     previous_shas.remove(chunk[SHA])
 
         if ops:
+            print('ops')
             self._collection.bulk_write(ops, ordered=False)
         if meta_ops:
+            print('meta ops')
             self._mdata.bulk_write(meta_ops, ordered=False)
 
         doc[CHUNK_COUNT] = chunk_count
         doc[APPEND_COUNT] = 0
 
-        if previous_shas:
-            mongo_retry(self._collection.delete_many)({SYMBOL: symbol, SHA: {'$in': list(previous_shas)}})
+        # if previous_shas:
+        #     mongo_retry(self._collection.delete_many)({SYMBOL: symbol, SHA: {'$in': list(previous_shas)}})
 
         mongo_retry(self._symbols.update_one)({SYMBOL: symbol},
                                               {'$set': doc},
