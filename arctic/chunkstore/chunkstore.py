@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 CHUNK_STORE_TYPE = 'ChunkStoreV1'
 SYMBOL = 'sy'
+END_ID = 'ei'
+START_ID: 'si'
 SHA = 'sh'
 CHUNK_SIZE = 'cs'
 CHUNK_COUNT = 'cc'
@@ -352,7 +354,7 @@ class ChunkStore(object):
         meta_ops = []
         chunk_count = 0
 
-        for start, end, chunk_size, record in chunker.to_chunks(item, **kwargs):
+        for start, end, chunk_size, start_id, end_id, record in chunker.to_chunks(item, **kwargs):
             chunk_count += 1
             data = self.serializer.serialize(record)
             doc[CHUNK_SIZE] = chunk_size
@@ -377,6 +379,8 @@ class ChunkStore(object):
                     ops.append(pymongo.UpdateOne({SYMBOL: symbol,
                                                   START: start,
                                                   END: end,
+                                                  START_ID: start_id,
+                                                  END_ID: end_id,
                                                   SEGMENT: chunk[SEGMENT]},
                                                  {'$set': chunk}, upsert=True))
                 else:
