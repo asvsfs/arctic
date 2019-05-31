@@ -42,17 +42,20 @@ class DateChunker(Chunker):
         else:
             raise Exception("Data must be datetime indexed or have a column named 'date'")
 
+        ids = df.id
         period_obj = dates.to_period(chunk_size)
         period_obj_reduced = period_obj.drop_duplicates()
         count = 0
         for _, g in df.groupby(period_obj._data):
             start = period_obj_reduced[count].start_time.to_pydatetime(warn=False)
             end = period_obj_reduced[count].end_time.to_pydatetime(warn=False)
+            start_id = df[df.index >= start].id.values[0]
+            end_id = df[df.index <= end].id.values[-1]
             count += 1
             if func:
-                yield start, end, chunk_size, func(g)
+                yield start, end, chunk_size, start_id, end_id, func(g)
             else:
-                yield start, end, chunk_size, g
+                yield start, end, chunk_size, start_id, end_id, g
 
     def to_range(self, start, end):
         """

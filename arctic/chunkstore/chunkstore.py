@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 CHUNK_STORE_TYPE = 'ChunkStoreV1'
 SYMBOL = 'sy'
 END_ID = 'ei'
-START_ID: 'si'
+START_ID= 'si'
 SHA = 'sh'
 CHUNK_SIZE = 'cs'
 CHUNK_COUNT = 'cc'
@@ -66,10 +66,13 @@ class ChunkStore(object):
         self._collection.create_index([(SYMBOL, pymongo.ASCENDING),
                                        (START, pymongo.ASCENDING),
                                        (END, pymongo.ASCENDING),
+                                       (START_ID, pymongo.ASCENDING),
+                                       (END_ID, pymongo.ASCENDING),
                                        (SEGMENT, pymongo.ASCENDING)],
                                       unique=True, background=True)
         self._collection.create_index([(SYMBOL, pymongo.ASCENDING),
                                        (START, pymongo.ASCENDING),
+                                       (START_ID, pymongo.ASCENDING),
                                        (SEGMENT, pymongo.ASCENDING)],
                                       unique=True, background=True)
         self._collection.create_index([(SEGMENT, pymongo.ASCENDING)],
@@ -77,6 +80,8 @@ class ChunkStore(object):
         self._mdata.create_index([(SYMBOL, pymongo.ASCENDING),
                                   (START, pymongo.ASCENDING),
                                   (END, pymongo.ASCENDING)],
+                                  (START_ID, pymongo.ASCENDING),
+                                  (END_ID, pymongo.ASCENDING),
                                  unique=True, background=True)
 
     def __init__(self, arctic_lib):
@@ -360,19 +365,25 @@ class ChunkStore(object):
             doc[CHUNK_SIZE] = chunk_size
             doc[METADATA] = {'columns': data[METADATA][COLUMNS] if COLUMNS in data[METADATA] else ''}
             meta = data[METADATA]
-
             for i in xrange(int(len(data[DATA]) / MAX_CHUNK_SIZE + 1)):
                 chunk = {DATA: Binary(data[DATA][i * MAX_CHUNK_SIZE: (i + 1) * MAX_CHUNK_SIZE])}
+                start_id = (int(start_id))
+                end_id = (int(end_id))
                 chunk[SEGMENT] = i
                 chunk[START] = meta[START] = start
                 chunk[END] = meta[END] = end
                 chunk[SYMBOL] = meta[SYMBOL] = symbol
+                chunk[START_ID] = meta[START_ID] = start_id
+                chunk[END_ID] = meta[END_ID] = end_id
                 dates = [chunker.chunk_to_str(start), chunker.chunk_to_str(end), str(chunk[SEGMENT]).encode('ascii')]
                 chunk[SHA] = self._checksum(dates, chunk[DATA])
-
+    
                 meta_ops.append(pymongo.ReplaceOne({SYMBOL: symbol,
                                                     START: start,
-                                                    END: end},
+                                                    END: end,
+                                                    START_ID: start_id,
+                                                    END_ID: end_id,
+                                                    },
                                                    meta, upsert=True))
 
                 if chunk[SHA] not in previous_shas:
