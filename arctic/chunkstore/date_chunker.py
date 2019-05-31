@@ -49,6 +49,8 @@ class DateChunker(Chunker):
         for _, g in df.groupby(period_obj._data):
             start = period_obj_reduced[count].start_time.to_pydatetime(warn=False)
             end = period_obj_reduced[count].end_time.to_pydatetime(warn=False)
+            start.tz_localize(None)
+            end.tz_localize(None)
             start_id = df[df.index >= start].id.values[0]
             end_id = df[df.index <= end].id.values[-1]
             count += 1
