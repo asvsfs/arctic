@@ -352,7 +352,7 @@ class ChunkStore(object):
         meta_ops = []
         chunk_count = 0
 
-        for start, end, chunk_size, record in chunker.to_chunks(item, **kwargs):
+        for start, end, chunk_size,start_id, end_id record in chunker.to_chunks(item, **kwargs):
             chunk_count += 1
             data = self.serializer.serialize(record)
             doc[CHUNK_SIZE] = chunk_size
